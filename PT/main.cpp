@@ -6,55 +6,79 @@ ILOSTLBEGIN
 
 // Estrutura para representar uma aresta no grafo
 struct Aresta {
-    int origem, destino, capacidade, custo;
+    int origem, destino, custo;
 };
 
 // Conjuntos do problema
-int N, M; // Número de nós e arestas
+int N, M; // Número de vértices (N) e arestas (M)
+vector<int> oferta;  // Vetor de oferta por vértice
+vector<int> demanda; // Vetor de demanda por vértice
 vector<Aresta> arestas; // Lista de arestas
-vector<int> saldo; // Vetor de oferta/demanda dos nós
 
 void cplex() {
     IloEnv env;
     IloModel model(env);
     
-    // Variáveis de decisão
-    IloArray<IloIntVarArray> x(env, N);
-    for (int i = 0; i < N; i++) {
-        x[i] = IloIntVarArray(env, N, 0, IloIntMax); // Variáveis inteiras >= 0
+    // Variáveis de decisão (x[i][j] ≥ 0, inteiras)
+    IloArray<IloIntVarArray> x(env, M);
+    for (int i = 0; i < M; i++) {
+        x[i] = IloIntVarArray(env, M, 0, IloIntMax);
     }
 
-    // Função Objetivo: Minimizar custo do fluxo
+    // Função Objetivo: Minimizar custo total do fluxo
     IloExpr objetivo(env);
     for (const auto& a : arestas) {
         objetivo += a.custo * x[a.origem][a.destino];
     }
     model.add(IloMinimize(env, objetivo));
 
-    // Restrição de conservação de fluxo
-    for (int i = 0; i < N; i++) {
+    // Restrição de atender demanda nos nós de destino
+    for (int j = 0; j < M; j++) { 
         IloExpr fluxo(env);
         for (const auto& a : arestas) {
-            if (a.origem == i) fluxo += x[a.origem][a.destino]; // Fluxo saindo
-            if (a.destino == i) fluxo -= x[a.origem][a.destino]; // Fluxo entrando
+            if (a.destino == j) fluxo += x[a.origem][a.destino];
         }
-        model.add(fluxo == saldo[i]);
+        model.add(fluxo == demanda[j]); 
     }
 
-    // Restrição de capacidade das arestas
-    for (const auto& a : arestas) {
-        model.add(x[a.origem][a.destino] <= a.capacidade);
+    // Restrição de respeitar a oferta nos nós de origem
+    for (int i = 0; i < N; i++) { 
+        IloExpr fluxo(env);
+        for (const auto& a : arestas) {
+            if (a.origem == i) fluxo += x[a.origem][a.destino];
+        }
+        model.add(fluxo <= oferta[i]); 
     }
 
     // Executa o modelo no CPLEX
     IloCplex cplex(model);
     cplex.setParam(IloCplex::TiLim, 3600);
+
     if (cplex.solve()) {
-        cout << "Solução ótima encontrada!\n";
-        cout << "Custo mínimo: " << cplex.getObjValue() << endl;
-        for (const auto& a : arestas) {
-            cout << "Fluxo de " << a.origem << " para " << a.destino << ": "
-                 << cplex.getValue(x[a.origem][a.destino]) << endl;
+        cout << "=============================\n";
+        cout << " Status da Solução: ";
+        switch (cplex.getStatus()) {
+            case IloAlgorithm::Optimal:
+                cout << "Ótima\n";
+                break;
+            case IloAlgorithm::Feasible:
+                cout << "Factível\n";
+                break;
+            default:
+                cout << "Sem solucao!\n";
+                break;
+        }
+        cout << "=============================\n";
+
+        // Se solução for encontrada, imprime os detalhes
+        if (cplex.getStatus() == IloAlgorithm::Optimal || cplex.getStatus() == IloAlgorithm::Feasible) {
+            cout << "Custo mínimo: " << cplex.getObjValue() << endl;
+            cout << "Fluxos ótimos por aresta:\n";
+
+            for (const auto& a : arestas) {
+                double fluxo = cplex.getValue(x[a.origem][a.destino]);
+                cout << "Fluxo de " << a.origem << " → " << a.destino << " = " << fluxo << "\n";
+            }
         }
     } else {
         cout << "Nenhuma solução encontrada.\n";
@@ -68,23 +92,31 @@ void cplex() {
 
 int main() {
     cin >> N >> M;
-    saldo.resize(N, 0);
-    arestas.resize(M);
+    
+    // Redimensionando vetores
+    oferta.resize(N);
+    demanda.resize(M);
+    arestas.clear(); 
 
-    // Leitura dos balanços nos nós (oferta/demanda)
+    // Leitura da oferta por vértice
     for (int i = 0; i < N; i++) {
-        cin >> saldo[i];
+        cin >> oferta[i];
     }
 
-    // Leitura das arestas (origem, destino, capacidade, custo)
-    for (int i = 0; i < M; i++) {
-        int origem, destino, capacidade, custo;
-        if (!(cin >> origem >> destino >> capacidade >> custo) || 
-            origem < 0 || origem >= N || destino < 0 || destino >= N) {
-            cerr << "Erro na entrada de aresta!" << endl;
-            return 1;
+    // Leitura da demanda por vértice
+    for (int j = 0; j < M; j++) {
+        cin >> demanda[j];
+    }
+
+    // Leitura da matriz de custos e preenchimento das arestas
+    for (int i = 0; i < N; i++) { 
+        for (int j = 0; j < M; j++) { 
+            int custo;
+            cin >> custo;
+            if (custo >= 0) { 
+                arestas.push_back({i, j, custo});
+            }
         }
-        arestas[i] = {origem, destino, capacidade, custo};
     }
 
     cplex();
