@@ -6,55 +6,79 @@ ILOSTLBEGIN
 
 // Estrutura para representar uma aresta no grafo
 struct Aresta {
-    int origem, destino, capacidade, custo;
+    int origem, destino, custo;
 };
 
-// Conjuntos do problema
-int N, M; // Número de nós e arestas
+int N, M, s, d; // Número de nós, arestas, nó de origem e destino
 vector<Aresta> arestas; // Lista de arestas
-vector<int> saldo; // Vetor de oferta/demanda dos nós
 
 void cplex() {
     IloEnv env;
     IloModel model(env);
-    
-    // Variáveis de decisão
-    IloArray<IloIntVarArray> x(env, N);
+
+    // Variáveis de decisão: x[i][j] = 1 se a aresta (i, j) for usada, 0 caso contrário
+    IloArray<IloBoolVarArray> x(env, N);
     for (int i = 0; i < N; i++) {
-        x[i] = IloIntVarArray(env, N, 0, IloIntMax); // Variáveis inteiras >= 0
+        x[i] = IloBoolVarArray(env, N);
+        for (int j = 0; j < N; j++) {
+            x[i][j] = IloBoolVar(env);
+        }
     }
 
-    // Função Objetivo: Minimizar custo do fluxo
+    // Função Objetivo: Minimizar custo total do caminho
     IloExpr objetivo(env);
     for (const auto& a : arestas) {
         objetivo += a.custo * x[a.origem][a.destino];
     }
     model.add(IloMinimize(env, objetivo));
 
-    // Restrição de conservação de fluxo
-    for (int i = 0; i < N; i++) {
-        IloExpr fluxo(env);
-        for (const auto& a : arestas) {
-            if (a.origem == i) fluxo += x[a.origem][a.destino]; // Fluxo saindo
-            if (a.destino == i) fluxo -= x[a.origem][a.destino]; // Fluxo entrando
+    // Restrição (2): O nó de origem deve ter exatamente uma aresta saindo
+    IloExpr saidaOrigem(env);
+    for (const auto& a : arestas) {
+        if (a.origem == s) {
+            saidaOrigem += x[a.origem][a.destino];
         }
-        model.add(fluxo == saldo[i]);
+    }
+    model.add(saidaOrigem == 1);
+
+    // Restrição (3): O nó de destino deve ter exatamente uma aresta chegando
+    IloExpr chegadaDestino(env);
+    for (const auto& a : arestas) {
+        if (a.destino == d) {
+            chegadaDestino += x[a.origem][a.destino];
+        }
+    }
+    model.add(chegadaDestino == 1);
+
+    // Restrição (4): Conservação de fluxo para nós intermediários (exceto s e d)
+    for (int k = 0; k < N; k++) {
+        if (k == s || k == d) continue;
+        IloExpr fluxoEntrada(env), fluxoSaida(env);
+        for (const auto& a : arestas) {
+            if (a.destino == k) fluxoEntrada += x[a.origem][a.destino];
+            if (a.origem == k) fluxoSaida += x[a.origem][a.destino];
+        }
+        model.add(fluxoEntrada == fluxoSaida);
     }
 
-    // Restrição de capacidade das arestas
+    // Restrição (5): Variáveis binárias
     for (const auto& a : arestas) {
-        model.add(x[a.origem][a.destino] <= a.capacidade);
+        model.add(x[a.origem][a.destino] >= 0);
+        model.add(x[a.origem][a.destino] <= 1);
     }
 
     // Executa o modelo no CPLEX
     IloCplex cplex(model);
     cplex.setParam(IloCplex::TiLim, 3600);
+    
     if (cplex.solve()) {
         cout << "Solução ótima encontrada!\n";
         cout << "Custo mínimo: " << cplex.getObjValue() << endl;
+        cout << "Caminho encontrado:\n";
         for (const auto& a : arestas) {
-            cout << "Fluxo de " << a.origem << " para " << a.destino << ": "
-                 << cplex.getValue(x[a.origem][a.destino]) << endl;
+            if (cplex.getValue(x[a.origem][a.destino]) > 0.5) {
+                cout << a.origem << " -> " << a.destino << " (custo: " << a.custo << ")\n";
+            }
         }
     } else {
         cout << "Nenhuma solução encontrada.\n";
@@ -67,24 +91,18 @@ void cplex() {
 }
 
 int main() {
-    cin >> N >> M;
-    saldo.resize(N, 0);
-    arestas.resize(M);
+    cin >> N >> M >> s >> d;
+    arestas.reserve(2 * M); // arestas bidirecionais
 
-    // Leitura dos balanços nos nós (oferta/demanda)
-    for (int i = 0; i < N; i++) {
-        cin >> saldo[i];
-    }
-
-    // Leitura das arestas (origem, destino, capacidade, custo)
     for (int i = 0; i < M; i++) {
-        int origem, destino, capacidade, custo;
-        if (!(cin >> origem >> destino >> capacidade >> custo) || 
+        int origem, destino, custo;
+        if (!(cin >> origem >> destino >> custo) || 
             origem < 0 || origem >= N || destino < 0 || destino >= N) {
             cerr << "Erro na entrada de aresta!" << endl;
             return 1;
         }
-        arestas[i] = {origem, destino, capacidade, custo};
+        arestas.push_back({origem, destino, custo});
+        arestas.push_back({destino, origem, custo}); // Adicionando a aresta reversa
     }
 
     cplex();
