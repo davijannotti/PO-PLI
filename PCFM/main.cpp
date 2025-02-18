@@ -38,7 +38,7 @@ void cplex() {
             if (a.origem == i) fluxo += x[a.origem][a.destino]; // Fluxo saindo
             if (a.destino == i) fluxo -= x[a.origem][a.destino]; // Fluxo entrando
         }
-        model.add(fluxo == saldo[i]);
+        model.add(fluxo <= saldo[i]);
     }
 
     // Restrição de capacidade das arestas
